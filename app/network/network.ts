@@ -179,7 +179,7 @@ export async function generate_queue_texts(queue: Track[]) {
   console.log("Inserting before track id", queue.map((item) => item.id).join(", "));
   return {
     audio: "empty", 
-    beforeTrackId: queue[0].id, 
+    beforeTrackId: queue[1].id, 
     text: "On a écouté \"Waterloo Sunset\" des Kinks, un classique de 1967.  Maintenant,  on remonte le temps jusqu'en 1970 avec Paul McCartney et son \"Maybe I'm Amazed\" (version remasterisée 2011), tirée de l'album *McCartney (Archive Collection)*.  Écrite pendant la séparation des Beatles et son mariage avec Linda, cette chanson reflète l'intensité émotionnelle de cette période.  Un hymne à l'amour au milieu du chaos de la fin des Fab Four!  Écoutons ça !"
   }
 }

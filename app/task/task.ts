@@ -14,7 +14,7 @@ export const checkPermission = async () => {
             interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
             playsInSilentModeIOS: true,
             shouldDuckAndroid: true,
-            interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+            interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
             staysActiveInBackground: true,
             playThroughEarpieceAndroid: true,
           });
@@ -38,11 +38,11 @@ export const registerTaskService = () => {
     }
 }
 
-export const createTask = () => {
+export const createTask = async () => {
     try {
       console.log("Magic Starting task");
     if (ReactNativeForegroundService) {
-      ReactNativeForegroundService.start({
+      await ReactNativeForegroundService.start({
         id: 1244,
         title: 'Foreground Service',
         message: 'We are live World',
@@ -70,55 +70,3 @@ export const createTask = () => {
     }
     
   };
-
-
-export const startTask = async () => {
-    console.log("Awaited startTask");
-    console.log(ReactNativeForegroundService.get_task('taskId'))
-    console.log("Is running: ", ReactNativeForegroundService.is_task_running('taskId'));
-    if (ReactNativeForegroundService) {
-      if(ReactNativeForegroundService.is_task_running('taskId') != null) {
-        console.log("ReactNativeForegroundService is not null and exists");
-        ReactNativeForegroundService.remove_task('taskId');
-        console.log("Stopped task");
-      }
-      console.log("ReactNativeForegroundService is not null and doenst exist");
-      ReactNativeForegroundService.add_task(() => log1(), {
-        delay: 1000,
-        onLoop: true,
-        taskId: 'taskId',
-        onError: (e) => console.log(`Error logging:`, e),
-      });
-    } else {
-      console.error("ReactNativeForegroundService is null");
-    }
-}
-
-const log1 = () => {
-    console.log("Logging...");
-    playBackgroundSound();
-    // while (true) {
-    //   console.log('Logging...');
-    //   await new Promise(resolve => setTimeout(resolve, 1000));
-    // }
-}
-
-
-// Sound playing function
-async function playBackgroundSound() {
-  try {
-    const { sound } = await Audio.Sound.createAsync(
-      require('../../assets/glass-break-316720.mp3')
-    );
-    await sound.playAsync();
-    
-    // Unload the sound after playing to free up resources
-    sound.setOnPlaybackStatusUpdate(async (status) => {
-      if (status && 'didJustFinish' in status && status.didJustFinish) {
-        await sound.unloadAsync();
-      }
-    });
-  } catch (error) {
-    console.log('Error playing background sound', error);
-  }
-}

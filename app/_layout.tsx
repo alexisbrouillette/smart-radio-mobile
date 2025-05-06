@@ -1,37 +1,36 @@
 import React, { useEffect, useState } from 'react';
-import { Text, Button, SafeAreaView  } from 'react-native';
+//import { Text, Button, SafeAreaView  } from 'react-native';
 import SpotifyAuth from '../SpotifyAuth';
 import * as Linking from 'expo-linking';
-import { Audio } from 'expo-av';
 import { 
-  exchangeCodeForToken, 
-  fetchPlaybackState, 
-  fetchUserQueue, 
-  generate_queue_audio, 
-  generate_queue_texts
+  exchangeCodeForToken
 } from './network/network';
-import { checkPermission } from './task/task';
-// import * as TaskManager from 'expo-task-manager';
-// import * as BackgroundFetch from 'expo-background-fetch';
 import ReactNativeForegroundService from "@supersami/rn-foreground-service";
 import { Track } from '@spotify/web-api-ts-sdk';
+import initService from './foregroundService';
+import { ScrollView, StyleSheet, DeviceEventEmitter, View, Dimensions } from 'react-native';
+
+import { Avatar, Button, Card, Text } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { SongCard } from './songCard';
+import RadioItem from './types';
+import { RadioItemCard } from './radioItemCard';
+
 
 global.Buffer = require('buffer').Buffer;
 
-export interface RadioItem {
-  text: string;
-  beforeTrackId: string;
-  audio: string | null;
-}
+const { height } = Dimensions.get('window');
+const NOW_PLAYING_HEIGHT = height * 0.66; // 2/3 of screen height
+
+
 
 
 let registered = false;
-let currentSong: Track | null = null;
-let queue: Track[] = [];
-let radioItems: RadioItem[] = [];
+
 
 console.log("Registered:", registered);
 if (ReactNativeForegroundService && !registered) {
+  console.log("Registering foreground service");
   ReactNativeForegroundService.register({
     config: {
       alert: true,
@@ -54,144 +53,41 @@ const simplifyTrack = (track: Track) => {
     duration: track.duration_ms,
   };
 }
-// Sound playing function
-async function playBackgroundSound() {
-  try {
-    const { sound } = await Audio.Sound.createAsync(
-      require('../assets/glass-break-316720.mp3'),
-      {
-        isLooping: false,
-        isMuted: false,
-        volume: 1.0,
-        rate: 1.0,
-        shouldPlay: true,
-      }
-    );
-    await sound.playAsync();
-    
-    // Unload the sound after playing to free up resources
-    sound.setOnPlaybackStatusUpdate(async (status) => {
-      if (status && 'didJustFinish' in status && status.didJustFinish) {
-        await sound.unloadAsync();
-      }
-    });
-  } catch (error) {
-    console.log('Error playing background sound', error);
-  }
-}
 
-// Sound playing function
-async function playBase64Audio(base64Audio: string) {
-  console.log("Playing base64 audio");
-  try {
-    const soundObject = new Audio.Sound();
-    const audioBuffer = Buffer.from(base64Audio, 'base64');
-    await soundObject.loadAsync({ uri: `data:audio/wav;base64,${audioBuffer.toString('base64')}` });
-    await soundObject.playAsync();
-
-    // Unload the sound after playing to free up resources
-    soundObject.setOnPlaybackStatusUpdate(async (status) => {
-      if (status && 'didJustFinish' in status && status.didJustFinish) {
-        await soundObject.unloadAsync();
-      }
-    });
-  } catch (error) {
-    console.log('Error playing base64 audio', error);
-  }
-}
-
-async function updateSongStatus(accessToken: string) {
-  try {
-    
-    const playbackState = await fetchPlaybackState(accessToken);
-    if (!playbackState) {
-      console.error('No playback state found');
-      return;
-    }
-
-    if(playbackState.name !== currentSong?.name) {
-      //the song just changed!!
-      fetchAudioTexts();
-      //forcing the array to be unique
-      const newQueue = [...queue];
-      const first_queue = newQueue.shift();
-      queue = newQueue;
-      currentSong = playbackState;
-      console.log("First queue:", {id: first_queue?.id, name: first_queue?.name});
-      console.log("Current song:", {id: currentSong?.id, name: currentSong?.name});
-
-      console.log("Last radio item", radioItems[radioItems.length - 1].beforeTrackId);
-      if(currentSong && currentSong.id == radioItems[radioItems.length - 1].beforeTrackId) {
-        console.log("Playing radio item");
-        const radioItem = radioItems[radioItems.length - 1];
-        if (radioItem.audio) {
-          console.log("Playing audio");
-          await playBase64Audio(radioItem.audio);
-          radioItems.shift();
-        } else {
-          console.error("No audio found for the current radio item");
-        }
-      }
-    }
-  }
-  catch (error) {
-    console.error('Error updating song status:', error);
-  }
-}
-
-
-const fetchAudioTexts = async () => {
-  let newRadioText: RadioItem = {
-    text: "",
-    beforeTrackId: "",
-    audio: null,
-  };
-
-  if(radioItems.length === 0) {
-    newRadioText = await generate_queue_texts([queue[0], queue[1]]);
-    newRadioText.beforeTrackId = queue[1].id;
-    newRadioText
-    console.log("First radio item:", {beforeTrackId: newRadioText.beforeTrackId});
-  }
-  else{
-    console.log(radioItems[radioItems.length - 1].beforeTrackId);
-    console.log(queue.map((track) => track.id));
-    const nextTrackToFetchRadio = queue.findIndex((track) => track.id == radioItems[radioItems.length - 1].beforeTrackId);
-    console.log("Next Track to fetch radio:", nextTrackToFetchRadio);
-    if(nextTrackToFetchRadio != queue.length -1){
-        
-       
-      //we already generated audio for the beforeTrack so we need to add 1 to the index
-      if (nextTrackToFetchRadio > -1 && nextTrackToFetchRadio < queue.length-1) {
-        const newFetchingRadioFor = [queue[nextTrackToFetchRadio+1]];
-        //usually give 2 tracks per request but if it's the last track, only give 1
-        if(nextTrackToFetchRadio < queue.length - 2) {
-          newFetchingRadioFor.push(queue[nextTrackToFetchRadio + 2]);
-        }
-        newRadioText = await generate_queue_texts(newFetchingRadioFor);
-      }
-    }
-  }
-  console.log("Radio Items:", radioItems.length);
-  radioItems.push(newRadioText);
-
-  fetchAudio();
-}
-
-const fetchAudio = async () => {
-  console.log("Fetching audio for radio items");
-  const emptyAudioItem = radioItems.find(item => item.audio === 'empty');
-  if (emptyAudioItem) {
-    console.log("Found item with empty audio:", emptyAudioItem.beforeTrackId);
-    const newAudio = await generate_queue_audio(emptyAudioItem.text);
-    const radioItemToUpdateIndex = radioItems.findIndex((radioItem) => radioItem.beforeTrackId == emptyAudioItem.beforeTrackId);
-    radioItems[radioItemToUpdateIndex].audio = newAudio;
-    console.log("Got new audio")
-  } 
-};
 
 export default function RootLayout() {
   const [code, setCode] = useState<string | null>(null);
+  const [queue, setQueue] = useState<Track[]>([]);
+  const [currentSong, setCurrentSong] = useState<Track | null>(null);
+  const [radioItems, setRadioItems] = useState<RadioItem[]>([]);
+
+    // Set up URL listener and background fetch
+    useEffect(() => {
+      console.log("Setting up URL listener");
+      const subscription = Linking.addEventListener('url', handleOpenURL);
+
+      const subscriptionEvent = DeviceEventEmitter.addListener('updatedQueue', (data) => {
+        console.log('Received data from service:');
+        // Update your UI here
+        setQueue(data.queue);
+      });
+
+      const currentSongEvent = DeviceEventEmitter.addListener('currentSong', (data) => {
+        console.log('Received current song data:');
+        // Handle current song data here
+        setCurrentSong(data.currentSong);
+      });
+      const radioItemsEvent = DeviceEventEmitter.addListener('updatedRadioItems', (data) => {
+        setRadioItems(data.radioItems);
+      });
+
+      return () => {
+        subscription.remove();
+        subscriptionEvent.remove();
+        currentSongEvent.remove();
+        radioItemsEvent.remove();
+      };
+    }, []);
 
 
   // Handle Spotify authentication callback
@@ -201,9 +97,7 @@ export default function RootLayout() {
       const { accessToken, refreshToken, expiresIn } = await exchangeCodeForToken(code);
       console.log("Access Token:", accessToken);
       setCode(accessToken);
-      queue = await fetchUserQueue(accessToken);
-      console.log("User Queue:", queue[0]);
-      console.log("User Queue:", queue[1]);
+
       // const playbackState = await fetchPlaybackState(accessToken);
       // console.log("Playback State:", playbackState);
       await initService(accessToken);
@@ -228,97 +122,6 @@ export default function RootLayout() {
       }
     }
   };
-  
-  const initService = async (code:string) => {
-    console.log("Init service:",  code);
-    await checkPermission();
-    await startTask();
-    console.log("Awaited startTask");
-    console.log(ReactNativeForegroundService.get_task('taskId'))
-    console.log("Is running: ", ReactNativeForegroundService.is_task_running('taskId'));
-    if (ReactNativeForegroundService) {
-      if(ReactNativeForegroundService.is_task_running('taskId') != null) {
-        console.log("ReactNativeForegroundService is not null and exists");
-        ReactNativeForegroundService.remove_task('taskId');
-        console.log("Stopped task");
-      }
-      console.log("ReactNativeForegroundService is not null and doenst exist");
-      ReactNativeForegroundService.add_task(() => updateSongStatus(code), {
-        delay: 1000,
-        onLoop: true,
-        taskId: 'taskId',
-        onError: (e) => console.log(`Error logging:`, e),
-      });
-    } else {
-      console.error("ReactNativeForegroundService is null");
-    }
-  }
-
-  // Set up URL listener and background fetch
-  useEffect(() => {
-    const subscription = Linking.addEventListener('url', handleOpenURL);  
-    return () => {
-      subscription.remove();
-      
-    };
-  }, []);
-
-  const startTask = () => {
-    try {
-      console.log("Magic Starting task");
-    if (ReactNativeForegroundService) {
-      ReactNativeForegroundService.start({
-        id: 1244,
-        title: 'Foreground Service',
-        message: 'We are live World',
-        icon: 'ic_launcher_background',
-        button: true,
-        button2: true,
-        buttonText: 'Button',
-        button2Text: 'Anther Button',
-        buttonOnPress: 'cray',
-        setOnlyAlertOnce: 'true',
-        color: '#000000',
-        progress: {
-          max: 100,
-          curr: 50,
-        },
-        // @ts-ignore
-        ServiceType: 'mediaPlayback',
-      });
-    } else {
-      console.error("ReactNativeForegroundService is null");
-    }
-    }
-    catch (e) {
-      console.log("Error stopping task", e);
-    }
-    
-  };
-  const loopFetchSong = async (code: string) => {
-    // setInterval(async () => {
-    //     // Fetch current playback state
-    //     const playbackState = await fetchPlaybackState(code);
-    //     // In component
-    //     const lastTrackId = await AsyncStorage.getItem('lastTrackId');
-
-    //     // Check if a new track is playing
-    //     if (playbackState && playbackState.id !== lastTrackId) {
-    //       // Play sound between tracks
-    //       await playBackgroundSound();
-          
-    //       await AsyncStorage.setItem('lastTrackId', playbackState.id);
-    //     }
-    // }
-    // , 1000);
-  };
-
-  // Toggle background fetch when code changes
-  useEffect(() => {
-    if (code) {
-      loopFetchSong(code);
-    }
-  }, [code]);
 
   const btnPress = async () => {
     console.log("btnPress");
@@ -334,16 +137,106 @@ export default function RootLayout() {
     // }
   };
 
+  const renderNowPlaying = (currentSong: Track) => (
+    <View style={styles.nowPlayingContainer}>
+      <Card style={styles.nowPlayingCard}>
+        <Card.Cover 
+          source={{ uri: currentSong.album.images[0]?.url }} 
+          style={styles.nowPlayingCover}
+        />
+        <Card.Content style={styles.nowPlayingContent}>
+          <Text style={styles.nowPlayingTitle}>{currentSong?.name || 'No track playing'}</Text>
+          <Text style={styles.nowPlayingArtist}>
+            {currentSong?.artists?.map(artist => artist.name).join(', ') || 'Unknown artist'}
+          </Text>
+          <Text style={styles.nowPlayingAlbum}>{currentSong?.album?.name || 'Unknown album'}</Text>
+        </Card.Content>
+      </Card>
+    </View>
+  );
+
+  const renderQueue = () => {
+    if (queue.length > 0) {
+      const renderList: (RadioItem | Track)[] = [...queue];
+      for (let i = 0; i < radioItems.length; i++) {
+        const radioItem = radioItems[i];
+        const index = renderList.findIndex((item) => 'name' in item && item.id === radioItem.beforeTrackId);
+        renderList.splice(index, 0, radioItem);
+
+      }
+      return renderList.map((elem) => {
+        if ('album' in elem)
+          return <SongCard song={elem} key={elem.id} />;
+        else
+          return <RadioItemCard radioItem={elem} key={elem.beforeTrackId+"radio"} />;
+      });
+    }
+    return null;
+  }
+  
+ 
   return (
-    <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Button title="Fetch User Queue" onPress={btnPress} />
-      {/* {code ? (
-        <Text>Authenticated with Spotify</Text>
+    <SafeAreaView style={styles.container}>
+      <Button onPress={btnPress} style={styles.button}>
+        Fetch User Queue
+      </Button>
+      
+      {queue.length > 0 && currentSong? (
+        <ScrollView style={styles.queueContainer}>
+          {renderNowPlaying(currentSong)} 
+          {renderQueue()}
+        </ScrollView>
       ) : (
         <SpotifyAuth onCode={handleCode} />
-      )} */}
-      <SpotifyAuth onCode={handleCode} />
+      )}
     </SafeAreaView>
   );
+  
 }
 
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  nowPlayingContainer: {
+    height: NOW_PLAYING_HEIGHT,
+  },
+  nowPlayingCard: {
+    height: '100%',
+    borderRadius: 0,
+  },
+  nowPlayingCover: {
+    height: '70%',
+    width: '100%',
+    borderRadius: 0,
+  },
+  nowPlayingContent: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  nowPlayingTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  nowPlayingArtist: {
+    fontSize: 18,
+    color: '#666',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  nowPlayingAlbum: {
+    fontSize: 16,
+    color: '#888',
+    textAlign: 'center',
+  },
+  queueContainer: {
+    flex: 1,
+    padding: 10,
+  },
+  
+  button: {
+    margin: 10,
+  },
+});
